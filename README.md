@@ -99,4 +99,4 @@ Response: Redis LangCache is a semantic caching solution...
 
 ## 📄 License
 
-MIT
+MIT - Feel free to fork it!
