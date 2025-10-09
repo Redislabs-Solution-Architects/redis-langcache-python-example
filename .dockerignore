@@ -1,0 +1,12 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.DS_Store
+.venv/
+.env
+# Artefatos locais
+*.log
