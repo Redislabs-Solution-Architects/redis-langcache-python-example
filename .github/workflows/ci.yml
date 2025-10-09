@@ -1,25 +1,30 @@
+# .github/workflows/ci.yml
 name: CI (Build & Push Docker, Update Release)
 
 on:
   push:
     branches: [ "main" ]
-    tags: [ "v*.*.*" ]
+    tags:     [ "v*.*.*" ]
   workflow_dispatch: {}
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/gabs-redis-langcache   # ajuste se necessário
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/gabs-redis-langcache
   DOCKERFILE: ./Dockerfile
 
 jobs:
   build-and-push:
-    name: Build & Push to Docker Hub
+    name: Build & Push (multi-arch) to Docker Hub + Release on tags
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # para criar/atualizar Release em tags
+      contents: write   # necessário para criar/atualizar Release quando for tag
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # QEMU para build multi-arquitetura (amd64 + arm64)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -31,7 +36,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # IMPORTANTE: garante que nenhum DOCKER_CONTEXT indesejado atrapalhe
+      # Evita conflito com variável DOCKER_CONTEXT do Docker
       - name: Sanitize Docker context env
         run: echo "DOCKER_CONTEXT=" >> $GITHUB_ENV
 
@@ -50,20 +55,21 @@ jobs:
             org.opencontainers.image.source=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Build & Push
+      - name: Build & Push (linux/amd64, linux/arm64)
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .                 # <- use o path aqui, não em env
+          context: .
           file: ${{ env.DOCKERFILE }}
           push: true
-          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
 
-      # Só em tags tipo v1.2.3: cria/atualiza Release
+      # Somente em tags (ex.: v1.2.3): cria/atualiza Release no GitHub
       - name: Compose release notes
         if: startsWith(github.ref, 'refs/tags/')
         id: notes
@@ -81,6 +87,10 @@ jobs:
             echo "### Digest"
             echo "\`${DIGEST}\`"
             echo ""
+            echo "### Plataformas"
+            echo "- linux/amd64"
+            echo "- linux/arm64"
+            echo ""
             echo "### Commit"
             echo "\`${GITHUB_SHA}\`"
           } > release-notes.md
@@ -94,4 +104,4 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}git status
