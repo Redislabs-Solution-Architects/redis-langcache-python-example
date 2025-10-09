@@ -7,6 +7,7 @@ Redis LangCache — Demo PT-BR (Contexto forte por BU/Empresa/Cargo)
 - Fatos: Semântico (threshold) + fallback EXACT→SEMANTIC
 - Resposta no cache é NEUTRA (sem nome/cargo); personalização só na exibição
 - Contexto forte: reescreve prompts AMBÍGUOS com "(no contexto de ...)" + system rígido "não cite outros sentidos"
+- FLUSH por UI: por escopo A, por escopo B, ou Ambos (A+B) — NUNCA apaga índice
 """
 
 import json
@@ -14,7 +15,7 @@ import os
 import re
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gradio as gr
 from dotenv import load_dotenv
@@ -123,21 +124,16 @@ def depersonalize_safe(text: str, person: Optional[str]) -> str:
 
 # ============== Contexto / Desambiguação ==============
 
-# termos ambíguos -> reforçar contexto
 AMBIGUOUS_TERMS = [
-    r"\bc[eé]lula\b",      # célula (biologia vs computação/planilhas)
-    r"\bbanco\b",          # banco (financeiro vs margem de rio)
-    r"\brede\b",           # rede (computadores vs hospital/saúde pública)
-    r"\bmodelo\b",         # modelo (ML vs negócio)
-    r"\bpipeline\b",       # pipeline (dados/software vs oleoduto)
+    r"\bc[eé]lula\b",
+    r"\bbanco\b",
+    r"\brede\b",
+    r"\bmodelo\b",
+    r"\bpipeline\b",
 ]
 
 def infer_domain(company: str, bu: str, role: Optional[str]) -> str:
-    """
-    Retorna rótulo curto de domínio para instrução: 'saúde', 'software', 'dados', 'finanças', 'turismo', etc.
-    """
     text = f"{company} {bu} {role or ''}".lower()
-
     if any(k in text for k in ["saude", "clínica", "clinica", "medic", "hospital"]):
         return "saúde"
     if any(k in text for k in ["engenharia", "software", "dev", "produto", "ti", "tecnologia", "tech"]):
@@ -148,7 +144,6 @@ def infer_domain(company: str, bu: str, role: Optional[str]) -> str:
         return "finanças"
     if any(k in text for k in ["turismo", "eco", "aventura", "hotel", "viagem"]):
         return "turismo"
-    # fallback neutro
     return "geral da área do usuário"
 
 def looks_ambiguous(prompt: str) -> bool:
@@ -156,10 +151,6 @@ def looks_ambiguous(prompt: str) -> bool:
     return any(re.search(pat, p, flags=re.IGNORECASE) for pat in AMBIGUOUS_TERMS)
 
 def rewrite_with_domain(prompt: str, domain_label: str) -> str:
-    """
-    Se a pergunta for ambígua, reforça explicitamente o contexto.
-    Ex.: "O que é uma célula? (no contexto de saúde)"
-    """
     clean = prompt.strip()
     if not clean.endswith("?"):
         clean += "?"
@@ -183,17 +174,13 @@ def call_openai(
         "Se a pergunta for ambígua (ex.: 'célula', 'rede', 'banco'), "
         f"RESPONDA APENAS no sentido de {domain} e NÃO mencione outros significados."
     )
-
-    # few-shot mínimo para ancorar comportamento
     examples = [
         {"role": "user", "content": "O que é uma célula? (no contexto de saúde)"},
         {"role": "assistant", "content": "Uma célula é a menor unidade estrutural e funcional dos seres vivos."},
         {"role": "user", "content": "O que é uma célula? (no contexto de engenharia de software)"},
         {"role": "assistant", "content": "Em computação, célula costuma se referir a uma unidade em uma tabela/planilha ou a um componente isolado de execução."},
     ]
-
     msgs = [{"role": "system", "content": system_ctx}, *examples, {"role": "user", "content": prompt}]
-
     resp = openai_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=msgs,
@@ -281,8 +268,7 @@ def search_and_answer(
         strategies = [SearchStrategy.EXACT] if (SearchStrategy is not None) else None
         sim_thr = None  # desliga semântico
 
-    # REESCRITA de prompt se for ambíguo (para o LLM e para o cache!)
-    # - Mantém isolamento adicional por atributos; a chave de cache leva a versão reescrita.
+    # Reescrita de ambíguos
     rewritten_prompt = prompt_original
     domain_label = infer_domain(company, bu, None)
     if looks_ambiguous(prompt_original):
@@ -334,10 +320,9 @@ def search_and_answer(
     if intent == "identity:role":
         llm_answer_neutral = "Não tenho sua função ainda. Diga: “Minha função é <cargo>” para eu guardar."
     else:
-        # usar prompt reescrito quando ambíguo
         llm_answer_neutral = call_openai(
             rewritten_prompt if intent == "fact" else key_for_cache,
-            person=None,  # não usar nome em fatos
+            person=None,
             company=company, bu=bu, role=None
         )
     llm_latency = time.perf_counter() - t1
@@ -359,6 +344,73 @@ def search_and_answer(
     latency_txt = f"[Cache Miss] busca: {cache_latency:.3f}s, llm: {llm_latency:.3f}s"
     return display_answer, "llm", json.dumps(debug, indent=2, ensure_ascii=False), latency_txt, tokens_est
 
+# ============== FLUSH helpers ==============
+
+def parse_deleted_count(res: Any) -> Optional[int]:
+    # Tenta extrair 'deleted_entries_count' como atributo ou chave
+    if hasattr(res, "deleted_entries_count"):
+        return getattr(res, "deleted_entries_count", None)
+    if isinstance(res, dict):
+        return res.get("deleted_entries_count") or res.get("deleted") or res.get("deleted_count")
+    return None
+
+def flush_entries_with_attrs(attrs: Dict[str, str]) -> Tuple[str, str]:
+    """
+    Chama delete_query(attributes=attrs). Nunca apaga índice.
+    O backend exige pelo menos 1 atributo (attributes != {}).
+    """
+    if not lang_cache:
+        return "⚠️ LangCache não configurado; nenhum flush executado.", json.dumps({"attributes": attrs, "ok": False}, ensure_ascii=False, indent=2)
+    try:
+        res = lang_cache.delete_query(attributes=attrs)
+        deleted = parse_deleted_count(res)
+        msg = f"✅ Flush executado. Escopo={attrs}. Removidos={deleted if deleted is not None else '—'}"
+        debug = {"attributes": attrs, "response": getattr(res, '__dict__', res)}
+        return msg, json.dumps(debug, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"❌ Erro no flush: {e}", json.dumps({"attributes": attrs, "error": str(e)}, ensure_ascii=False, indent=2)
+
+def handle_flush_scope(company: str, bu: str, person: str, isolation: str):
+    attrs = build_attributes(company or "", bu or "", person or "", isolation)
+    if not attrs:
+        return ("⚠️ Selecione um nível de isolamento diferente de 'none' para poder limpar por escopo.",
+                json.dumps({"attributes": attrs, "error": "attributes cannot be blank"}, ensure_ascii=False, indent=2))
+    return flush_entries_with_attrs(attrs)
+
+def handle_flush_both(
+    a_company: str, a_bu: str, a_person: str,
+    b_company: str, b_bu: str, b_person: str,
+    isolation: str,
+):
+    """
+    Executa flush para os dois cenários (A e B), respeitando o isolamento atual.
+    Útil porque o endpoint não aceita attributes={} (global).
+    """
+    attrs_a = build_attributes(a_company or "", a_bu or "", a_person or "", isolation)
+    attrs_b = build_attributes(b_company or "", b_bu or "", b_person or "", isolation)
+
+    msgs = []
+    debugs = []
+
+    if attrs_a:
+        msg_a, dbg_a = flush_entries_with_attrs(attrs_a)
+        msgs.append(msg_a)
+        debugs.append(json.loads(dbg_a))
+    else:
+        msgs.append("⚠️ Escopo A: isolamento 'none' não pode ser limpo.")
+        debugs.append({"attributes": attrs_a, "error": "attributes cannot be blank"})
+
+    if attrs_b:
+        msg_b, dbg_b = flush_entries_with_attrs(attrs_b)
+        msgs.append(msg_b)
+        debugs.append(json.loads(dbg_b))
+    else:
+        msgs.append("⚠️ Escopo B: isolamento 'none' não pode ser limpo.")
+        debugs.append({"attributes": attrs_b, "error": "attributes cannot be blank"})
+
+    final_msg = "<br/>".join(msgs)
+    return final_msg, json.dumps({"A": debugs[0], "B": debugs[1]}, ensure_ascii=False, indent=2)
+
 # ============== UI / KPIs ==============
 
 DESCRICAO_LONGA = """
@@ -366,6 +418,7 @@ DESCRICAO_LONGA = """
 - Nome: sem cache; Cargo: EXACT ONLY.
 - Fatos: SEMANTIC + fallback EXACT→SEMANTIC.
 - Desambiguação forte: prompts ambíguos são reescritos com “(no contexto de …)”.
+- FLUSH: limpe entradas por escopo A/B ou ambos (A+B). O endpoint exige attributes != {}.
 """
 
 def format_currency(v: float, currency: str = "USD") -> str:
@@ -533,6 +586,11 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
                 a_source = gr.Label(label="Origem")
                 a_latency = gr.Label(label="Latência")
             a_debug = gr.Code(label="Debug")
+            # FLUSH A
+            gr.Markdown("**Manutenção do Cache — A**")
+            a_flush_btn = gr.Button("🧹 Limpar Cache (Escopo A)")
+            a_flush_status = gr.HTML()
+            a_flush_debug = gr.Code()
 
         with gr.Column():
             gr.Markdown("#### Cenário B")
@@ -546,6 +604,11 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
                 b_source = gr.Label(label="Origem")
                 b_latency = gr.Label(label="Latência")
             b_debug = gr.Code(label="Debug")
+            # FLUSH B
+            gr.Markdown("**Manutenção do Cache — B**")
+            b_flush_btn = gr.Button("🧹 Limpar Cache (Escopo B)")
+            b_flush_status = gr.HTML()
+            b_flush_debug = gr.Code()
 
     gr.Markdown("### Indicadores")
     with gr.Row(elem_classes=["kpi-row"]):
@@ -565,7 +628,14 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
         col_count=(10, "fixed"),
     )
 
-    # Eventos
+    # FLUSH "Ambos"
+    gr.Markdown("---")
+    gr.Markdown("### 🧹 Limpeza Combinada (A + B)")
+    flush_both_btn = gr.Button("🧹 Limpar Ambos (A+B)")
+    flush_both_status = gr.HTML()
+    flush_both_debug = gr.Code()
+
+    # Eventos de pergunta
     a_btn.click(
         fn=handle_submit,
         inputs=[
@@ -598,6 +668,25 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
             history_table,
             st,
         ],
+    )
+
+    # Eventos de FLUSH
+    a_flush_btn.click(
+        fn=handle_flush_scope,
+        inputs=[a_company, a_bu, a_person, isolation_global],
+        outputs=[a_flush_status, a_flush_debug],
+    )
+
+    b_flush_btn.click(
+        fn=handle_flush_scope,
+        inputs=[b_company, b_bu, b_person, isolation_global],
+        outputs=[b_flush_status, b_flush_debug],
+    )
+
+    flush_both_btn.click(
+        fn=handle_flush_both,
+        inputs=[a_company, a_bu, a_person, b_company, b_bu, b_person, isolation_global],
+        outputs=[flush_both_status, flush_both_debug],
     )
 
 if __name__ == "__main__":
