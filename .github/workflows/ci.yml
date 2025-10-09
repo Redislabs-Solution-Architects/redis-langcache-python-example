@@ -3,13 +3,12 @@ name: CI (Build & Push Docker, Update Release)
 on:
   push:
     branches: [ "main" ]
-    tags:     [ "v*.*.*" ]
+    tags: [ "v*.*.*" ]
   workflow_dispatch: {}
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/gabs-redis-langcache   # ajuste se o repositório no Docker Hub tiver outro nome
-  DOCKER_CONTEXT: .
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/gabs-redis-langcache   # ajuste se necessário
   DOCKERFILE: ./Dockerfile
 
 jobs:
@@ -17,7 +16,7 @@ jobs:
     name: Build & Push to Docker Hub
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # necessário para atualizar/ criar Release em tags
+      contents: write   # para criar/atualizar Release em tags
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,6 +30,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # IMPORTANTE: garante que nenhum DOCKER_CONTEXT indesejado atrapalhe
+      - name: Sanitize Docker context env
+        run: echo "DOCKER_CONTEXT=" >> $GITHUB_ENV
 
       - name: Extract Docker metadata (tags & labels)
         id: meta
@@ -51,7 +54,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.DOCKER_CONTEXT }}
+          context: .                 # <- use o path aqui, não em env
           file: ${{ env.DOCKERFILE }}
           push: true
           labels: ${{ steps.meta.outputs.labels }}
@@ -60,7 +63,7 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
-      # Somente em tags (ex.: v1.2.3), cria/atualiza a Release do GitHub com notas automáticas
+      # Só em tags tipo v1.2.3: cria/atualiza Release
       - name: Compose release notes
         if: startsWith(github.ref, 'refs/tags/')
         id: notes
@@ -73,7 +76,6 @@ jobs:
             echo "- Registry: \`${{ env.REGISTRY }}\`"
             echo "- Image: \`${{ env.IMAGE_NAME }}\`"
             echo "- Tags publicados:"
-            # Mostra as tags resolvidas pelo metadata-action
             echo '${{ steps.meta.outputs.tags }}' | tr ' ' '\n' | sed 's/^/- /'
             echo ""
             echo "### Digest"
@@ -88,8 +90,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release-notes.md
+          files: release-notes.md
           body_path: release-notes.md
           generate_release_notes: true
         env:
