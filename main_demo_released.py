@@ -596,7 +596,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
             gr.Markdown("#### Cenário B")
             b_company = gr.Textbox(label="Company", value="TechNova")
             b_bu = gr.Textbox(label="Business Unit", value="Engenharia-de-Software")
-            b_person = gr.Textbox(label="Person", value="Diego")
+            b_person = gr.Textbox(label="Person", value="Janine")
             b_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
             b_btn = gr.Button("Perguntar (B)", variant="primary")
             b_answer = gr.Textbox(label="Resposta", lines=6)
