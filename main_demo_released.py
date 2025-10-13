@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Redis LangCache — Demo PT-BR (Contexto forte por BU/Empresa/Cargo)
-- Nome (IDENTITY:NAME): sem cache (usa atributo person)
-- Cargo (IDENTITY:ROLE): EXACT ONLY (chave constante) + SET suportado
-- Fatos: Semântico (threshold) + fallback EXACT→SEMANTIC
-- Resposta no cache é NEUTRA (sem nome/cargo); personalização só na exibição
-- Contexto forte: reescreve prompts AMBÍGUOS com "(no contexto de ...)" + system rígido "não cite outros sentidos"
-- FLUSH por UI: por escopo A, por escopo B, ou Ambos (A+B) — NUNCA apaga índice
+UI Visual Refresh (apenas UI)
+- Space Grotesk nos títulos/KPIs, Inter no corpo
+- Header vermelho Redis com logo oficial + links (LinkedIn do Gabs / Redis)
+- Cenário A e B lado a lado (layout preservado)
+- Cards leves, contraste melhorado
+- Sem CSV / healthcheck
 """
 
 import json
@@ -251,7 +250,6 @@ def search_and_answer(
         "ttl_ms_on_set": ttl_ms,
     }
 
-    # Nome: não usa cache
     if intent == "identity:name":
         if person:
             ans = f"Olá, {person}! Seu nome é {person}."
@@ -261,14 +259,12 @@ def search_and_answer(
         debug["prompt_normalizado"] = KEY_NAME
         return ans, "llm", json.dumps(debug, indent=2, ensure_ascii=False), "[Identidade:Nome] direto (sem cache)", tokens_est
 
-    # Estratégia por intenção
     strategies = None
     sim_thr = similarity_threshold
     if intent == "identity:role":
         strategies = [SearchStrategy.EXACT] if (SearchStrategy is not None) else None
         sim_thr = None  # desliga semântico
 
-    # Reescrita de ambíguos
     rewritten_prompt = prompt_original
     domain_label = infer_domain(company, bu, None)
     if looks_ambiguous(prompt_original):
@@ -277,7 +273,6 @@ def search_and_answer(
             key_for_cache = f"[FACT]\n{rewritten_prompt}"
     debug["prompt_normalizado"] = key_for_cache
 
-    # ====== Cache
     t0 = time.perf_counter()
     cached_answer = None
     if lang_cache:
@@ -315,7 +310,6 @@ def search_and_answer(
         latency_txt = f"[Cache Hit] busca: {cache_latency:.3f}s"
         return display_answer, "cache", json.dumps(debug, indent=2, ensure_ascii=False), latency_txt, tokens_est
 
-    # ====== LLM
     t1 = time.perf_counter()
     if intent == "identity:role":
         llm_answer_neutral = "Não tenho sua função ainda. Diga: “Minha função é <cargo>” para eu guardar."
@@ -327,7 +321,6 @@ def search_and_answer(
         )
     llm_latency = time.perf_counter() - t1
 
-    # ====== Grava no cache (exceto nome)
     if lang_cache and intent != "identity:name":
         try:
             lang_cache.set(
@@ -347,7 +340,6 @@ def search_and_answer(
 # ============== FLUSH helpers ==============
 
 def parse_deleted_count(res: Any) -> Optional[int]:
-    # Tenta extrair 'deleted_entries_count' como atributo ou chave
     if hasattr(res, "deleted_entries_count"):
         return getattr(res, "deleted_entries_count", None)
     if isinstance(res, dict):
@@ -355,10 +347,6 @@ def parse_deleted_count(res: Any) -> Optional[int]:
     return None
 
 def flush_entries_with_attrs(attrs: Dict[str, str]) -> Tuple[str, str]:
-    """
-    Chama delete_query(attributes=attrs). Nunca apaga índice.
-    O backend exige pelo menos 1 atributo (attributes != {}).
-    """
     if not lang_cache:
         return "⚠️ LangCache não configurado; nenhum flush executado.", json.dumps({"attributes": attrs, "ok": False}, ensure_ascii=False, indent=2)
     try:
@@ -382,10 +370,6 @@ def handle_flush_both(
     b_company: str, b_bu: str, b_person: str,
     isolation: str,
 ):
-    """
-    Executa flush para os dois cenários (A e B), respeitando o isolamento atual.
-    Útil porque o endpoint não aceita attributes={} (global).
-    """
     attrs_a = build_attributes(a_company or "", a_bu or "", a_person or "", isolation)
     attrs_b = build_attributes(b_company or "", b_bu or "", b_person or "", isolation)
 
@@ -414,11 +398,10 @@ def handle_flush_both(
 # ============== UI / KPIs ==============
 
 DESCRICAO_LONGA = """
-- Isolamento por atributos: company, business_unit, person.
-- Nome: sem cache; Cargo: EXACT ONLY.
-- Fatos: SEMANTIC + fallback EXACT→SEMANTIC.
-- Desambiguação forte: prompts ambíguos são reescritos com “(no contexto de …)”.
-- FLUSH: limpe entradas por escopo A/B ou ambos (A+B). O endpoint exige attributes != {}.
+- O LangCache guarda respostas neutras do LLM e as reutiliza por escopo (Company/BU/Person).
+- A UI abaixo permite comparar dois cenários em paralelo (A x B).
+- Pedidos ambíguos são reescritos automaticamente para o domínio do usuário.
+- É possível limpar entradas do cache por escopo (A, B ou ambos) — o índice NUNCA é apagado.
 """
 
 def format_currency(v: float, currency: str = "USD") -> str:
@@ -444,120 +427,155 @@ def calc_savings(tokens_est: int, price_in: float, price_out: float, frac_in: fl
     tokens_out = max(0, tokens_est - tokens_in)
     return (tokens_in / 1000.0) * price_in + (tokens_out / 1000.0) * price_out
 
-def handle_submit(
-    side: str,
-    company: str,
-    bu: str,
-    person: str,
-    prompt: str,
-    isolation: str,
-    threshold: float,
-    use_exact_sem: bool,
-    ttl_seconds: int,
-    price_in: float,
-    price_out: float,
-    frac_in: float,
-    currency: str,
-    state: dict,
-):
-    sim = None if threshold < 0 else threshold
-    ttl_ms = None if ttl_seconds <= 0 else ttl_seconds * 1000
-
-    company = (company or "Acme").strip()
-    bu = (bu or "BU-1").strip()
-    person = (person or "user-1").strip()
-
-    answer, source, debug_json, latency, tokens_est = search_and_answer(
-        company=company,
-        bu=bu,
-        person=person,
-        prompt_original=prompt,
-        isolation=isolation,
-        similarity_threshold=sim,
-        use_exact_then_semantic=use_exact_sem,
-        ttl_ms=ttl_ms,
-    )
-
-    if source == "cache":
-        state["hits"] = state.get("hits", 0) + 1
-        saved = calc_savings(tokens_est, price_in, price_out, frac_in)
-        state["saved_usd"] = state.get("saved_usd", 0.0) + saved
-        state["saved_tokens"] = state.get("saved_tokens", 0) + tokens_est
-        saved_str = f"Economia: {format_currency(saved, currency)}"
-    else:
-        state["misses"] = state.get("misses", 0) + 1
-        saved_str = "Sem economia neste turno"
-
-    history = state.setdefault("history", [])
-    history.append({
-        "timestamp": datetime.now().strftime("%H:%M:%S"),
-        "lado": side,
-        "company": company,
-        "business_unit": bu,
-        "person": person,
-        "fonte": source,
-        "latencia": latency,
-        "tokens_est": tokens_est,
-        "economia_turno": (calc_savings(tokens_est, price_in, price_out, frac_in) if source == "cache" else 0.0),
-        "prompt": prompt[:60] + ("…" if len(prompt) > 60 else ""),
-    })
-    if len(history) > 200:
-        del history[: len(history) - 200]
-
-    k = atualizar_kpis(state)
-    table_rows = [
-        [h["timestamp"], h["lado"], h["company"], h["business_unit"], h["person"], h["fonte"], h["latencia"], h["tokens_est"], f"{format_currency(h['economia_turno'])}", h["prompt"]]
-        for h in reversed(history[-50:])
-    ]
-
-    kpi_hits_html = f"<div class='kpi'><div class='kpi-num'>{k['hits']}</div><div class='kpi-label'>Hits</div></div>"
-    kpi_miss_html = f"<div class='kpi'><div class='kpi-num'>{k['misses']}</div><div class='kpi-label'>Misses</div></div>"
-    kpi_rate_html = f"<div class='kpi'><div class='kpi-num'>{k['rate']}</div><div class='kpi-label'>Hit Rate</div></div>"
-    kpi_tok_html = f"<div class='kpi'><div class='kpi-num'>{k['tokens']}</div><div class='kpi-label'>Tokens</div></div>"
-    kpi_usd_html = f"<div class='kpi kpi-accent'><div class='kpi-num'>{k['usd']}</div><div class='kpi-label'>Economia</div></div>"
-
-    return (
-        answer,
-        json.dumps({"fonte": source}, ensure_ascii=False),
-        debug_json,
-        f"{latency} · {saved_str}",
-        gr.update(value=kpi_hits_html),
-        gr.update(value=kpi_miss_html),
-        gr.update(value=kpi_rate_html),
-        gr.update(value=kpi_tok_html),
-        gr.update(value=kpi_usd_html),
-        table_rows,
-        state,
-    )
-
-# ============== Custom CSS ==============
+# ===================== CSS (VISUAL APENAS) =====================
 CUSTOM_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&display=swap');
+
 :root {
-  --redis-red: #D82C20; --text-strong: #111; --text-soft: #444;
-  --bg-card: #fff; --bg-soft: #f7f7f7; --border-soft: #e6e6e6; --radius: 14px;
+  --redis-red:#D82C20; --ink:#0b1220; --soft:#475569; --muted:#64748b;
+  --line:#e5e7eb; --bg:#f6f7f9; --white:#ffffff; --radius:14px;
 }
+
 * { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; }
-.kpi-row { display:flex; gap:12px; }
-.kpi { flex:1; background:var(--bg-card); border:1px solid var(--border-soft); border-radius:var(--radius);
-       padding:14px 16px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
-.kpi .kpi-num { font-size:22px; font-weight:700; color:var(--text-strong); line-height:1.1; }
-.kpi .kpi-label { font-size:12px; color:var(--text-soft); margin-top:4px; text-transform:uppercase; letter-spacing:.6px; }
-.kpi-accent { border-color:var(--redis-red); box-shadow:0 2px 8px rgba(216,44,32,.12); }
-button.primary, .gr-button-primary { background:var(--redis-red) !important; border-color:var(--redis-red) !important; color:#fff !important; }
+body, #app-root { background: var(--bg); }
+
+/* HEADER */
+.app-header {
+  position: sticky; top: 0; z-index: 50;
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 16px; background: var(--redis-red); color:#fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
+}
+.app-header .brand { display:flex; align-items:center; gap:12px; }
+.app-header .brand img { height:22px; display:block; }
+.app-header .title { font-family: 'Space Grotesk', Inter, sans-serif; font-size:18px; font-weight:700; letter-spacing:.2px; }
+.app-header .links { display:flex; gap:8px; }
+.app-header .links a {
+  display:inline-flex; align-items:center; gap:8px; color:#fff; text-decoration:none;
+  border:1px solid rgba(255,255,255,.35); padding:7px 12px; border-radius:999px; font-weight:600; font-size:12px;
+  transition: background .15s ease, transform .15s ease;
+}
+.app-header .links a:hover { background: rgba(255,255,255,.14); transform: translateY(-1px); }
+
+/* HEADINGS */
+.h1 {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size:26px; font-weight:700; color:var(--ink); margin:16px 16px 6px;
+}
+.h2 {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size:16px; font-weight:600; color:var(--soft); margin:0 16px 14px;
+}
+
+/* Config box (clean) */
+.config-card {
+  margin: 10px 16px 14px; padding:12px;
+  background: var(--white);
+  border:1px solid var(--line); border-radius: var(--radius);
+}
+
+/* KPIs */
+.kpi-row { display:flex; gap:12px; margin: 0 16px 10px; }
+.kpi {
+  flex:1; background: var(--white); border:1px solid var(--line); border-radius:12px;
+  padding:12px 14px;
+}
+.kpi .kpi-num {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size:22px; font-weight:700; color:var(--ink); line-height:1.1;
+}
+.kpi .kpi-label { font-size:12px; color:var(--muted); margin-top:4px; text-transform:uppercase; letter-spacing:.6px; }
+.kpi-accent { border-color: var(--redis-red); }
+
+/* Cenários lado a lado */
+.scenarios { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 16px; }
+@media (max-width: 1024px) { .scenarios { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--white); border:1px solid var(--line); border-radius: var(--radius);
+  padding:12px;
+}
+.card .card-title {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size:16px; font-weight:700; color:var(--ink); margin-bottom:8px;
+}
+
+/* Flush */
+.flush-wrap { margin-top:8px; border-top:1px dashed var(--line); padding-top:10px; }
+
+/* History */
+.dataframe { background: var(--white); border:1px solid var(--line); border-radius: var(--radius); }
+.dataframe thead tr th { font-size:12px; }
+.dataframe tbody tr td { font-size:12px; }
+
+/* Buttons */
+button.primary, .gr-button-primary {
+  background: var(--redis-red) !important; border-color: var(--redis-red) !important; color:#fff !important;
+}
+
+/* --- HERO (título + subtítulo) --- */
+.hero {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin: 16px;
+  padding: 16px 18px;
+}
+
+.hero-title {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);      /* força contraste alto */
+  letter-spacing: .2px;
+  margin: 0 0 8px 0;
+}
+
+.hero-sub {
+  font-size: 14px;
+  color: var(--soft);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Se em algum tema o título estiver “preto no preto”, garante contraste: */
+.h1 { color: var(--ink) !important; background: transparent !important; }
 """
 
-# ============== App ==============
-with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
+# ============== APP (layout preservado A/B) ==============
+with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="app-root") as demo:
     st = gr.State({"hits": 0, "misses": 0, "saved_tokens": 0, "saved_usd": 0.0, "history": []})
 
-    gr.Markdown("# Redis LangCache — Demo PT-BR")
-    gr.Markdown("### Cache semântico isolado por Company / BU / Person · Reaproveitamento + Economia")
+    # Header com logo + links
+    gr.HTML("""
+      <div class="app-header">
+        <div class="brand">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/Redis_logo.svg/2560px-Redis_logo.svg.png" alt="Redis">
+          <div class="title">Redis LangCache — Demo PT-BR</div>
+        </div>
+        <div class="links">
+          <a href="https://www.linkedin.com/in/gabrielcerioni/" target="_blank" rel="noopener">💼 LinkedIn do Gabs</a>
+          <a href="https://redis.io/" target="_blank" rel="noopener">🔗 Redis</a>
+        </div>
+      </div>
+    """)
 
-    with gr.Accordion("Como funciona (detalhes)", open=False):
-        gr.Markdown(DESCRICAO_LONGA)
+    # Título + Subtítulo (claros e legíveis)
+    gr.HTML("""
+      <div class="hero">
+        <div class="hero-title">Cache semântico por Empresa / Business Unit / Pessoa</div>
+        <p class="hero-sub">
+          Esta demo mostra como o LangCache guarda respostas neutras dos LLMs e
+          as reutiliza por escopo (empresa/BU/pessoa).<br/>
+          Você pode limpar o cache por escopo diretamente na interface.<br/>
+          Lembrando que o cache pode ser para TODOS, pra uma BU, ou pra uma pessoa específica!
+          
+        </p>
+      </div>
+    """)
 
-    with gr.Accordion("Configurações", open=True):
+    # Configurações
+    with gr.Group(elem_classes=["config-card"]):
         with gr.Row():
             isolation_global = gr.Radio(
                 choices=["company+bu+person", "company+bu", "company", "none"],
@@ -572,45 +590,10 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
             price_out = gr.Number(label="Preço 1k tokens (Saída)", value=0.60)
             frac_in = gr.Slider(label="% Entrada", minimum=0.1, maximum=0.9, value=0.5, step=0.05)
             currency = gr.Dropdown(label="Moeda", choices=["USD"], value="USD")
+        with gr.Accordion("Como funciona (detalhes)", open=False):
+            gr.Markdown(DESCRICAO_LONGA)
 
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("#### Cenário A")
-            a_company = gr.Textbox(label="Company", value="ClinicaMedicaABC")
-            a_bu = gr.Textbox(label="Business Unit", value="Saude-Medicos")
-            a_person = gr.Textbox(label="Person", value="Gabriel")
-            a_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
-            a_btn = gr.Button("Perguntar (A)", variant="primary")
-            a_answer = gr.Textbox(label="Resposta", lines=6)
-            with gr.Row():
-                a_source = gr.Label(label="Origem")
-                a_latency = gr.Label(label="Latência")
-            a_debug = gr.Code(label="Debug")
-            # FLUSH A
-            gr.Markdown("**Manutenção do Cache — A**")
-            a_flush_btn = gr.Button("🧹 Limpar Cache (Escopo A)")
-            a_flush_status = gr.HTML()
-            a_flush_debug = gr.Code()
-
-        with gr.Column():
-            gr.Markdown("#### Cenário B")
-            b_company = gr.Textbox(label="Company", value="TechNova")
-            b_bu = gr.Textbox(label="Business Unit", value="Engenharia-de-Software")
-            b_person = gr.Textbox(label="Person", value="Janine")
-            b_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
-            b_btn = gr.Button("Perguntar (B)", variant="primary")
-            b_answer = gr.Textbox(label="Resposta", lines=6)
-            with gr.Row():
-                b_source = gr.Label(label="Origem")
-                b_latency = gr.Label(label="Latência")
-            b_debug = gr.Code(label="Debug")
-            # FLUSH B
-            gr.Markdown("**Manutenção do Cache — B**")
-            b_flush_btn = gr.Button("🧹 Limpar Cache (Escopo B)")
-            b_flush_status = gr.HTML()
-            b_flush_debug = gr.Code()
-
-    gr.Markdown("### Indicadores")
+    # KPIs
     with gr.Row(elem_classes=["kpi-row"]):
         kpi_hits = gr.HTML("<div class='kpi'><div class='kpi-num'>0</div><div class='kpi-label'>Hits</div></div>")
         kpi_misses = gr.HTML("<div class='kpi'><div class='kpi-num'>0</div><div class='kpi-label'>Misses</div></div>")
@@ -618,6 +601,54 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
         kpi_tokens = gr.HTML("<div class='kpi'><div class='kpi-num'>0</div><div class='kpi-label'>Tokens</div></div>")
         kpi_savings = gr.HTML("<div class='kpi kpi-accent'><div class='kpi-num'>USD $0.0000</div><div class='kpi-label'>Economia</div></div>")
 
+    # Cenários A e B (lado a lado)
+    with gr.Row(elem_classes=["scenarios"]):
+        # --- Cenário A ---
+        with gr.Column(elem_classes=["card"]):
+            gr.Markdown("<div class='card-title'>Cenário A</div>")
+            with gr.Row():
+                a_company = gr.Textbox(label="Company", value="RedisLabs")
+                a_bu = gr.Textbox(label="Business Unit", value="Saude-Medicos")
+                a_person = gr.Textbox(label="Person", value="Gabriel")
+            a_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
+            a_btn = gr.Button("Perguntar (A)", variant="primary")
+            a_answer = gr.Textbox(label="Resposta", lines=6)
+            with gr.Row():
+                a_source = gr.Label(label="Origem")
+                a_latency = gr.Label(label="Latência")
+            a_debug = gr.Code(label="Debug")
+            gr.HTML("<div class='flush-wrap'></div>")
+            a_flush_btn = gr.Button("🧹 Limpar Cache (Escopo A)")
+            a_flush_status = gr.HTML()
+            a_flush_debug = gr.Code()
+
+        # --- Cenário B ---
+        with gr.Column(elem_classes=["card"]):
+            gr.Markdown("<div class='card-title'>Cenário B</div>")
+            with gr.Row():
+                b_company = gr.Textbox(label="Company", value="RedisLabs")
+                b_bu = gr.Textbox(label="Business Unit", value="Engenharia-de-Software")
+                b_person = gr.Textbox(label="Person", value="Janine")
+            b_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
+            b_btn = gr.Button("Perguntar (B)", variant="primary")
+            b_answer = gr.Textbox(label="Resposta", lines=6)
+            with gr.Row():
+                b_source = gr.Label(label="Origem")
+                b_latency = gr.Label(label="Latência")
+            b_debug = gr.Code(label="Debug")
+            gr.HTML("<div class='flush-wrap'></div>")
+            b_flush_btn = gr.Button("🧹 Limpar Cache (Escopo B)")
+            b_flush_status = gr.HTML()
+            b_flush_debug = gr.Code()
+
+    # Flush ambos
+    with gr.Group():
+        gr.Markdown("### 🧹 Limpeza Combinada (A + B)")
+        flush_both_btn = gr.Button("🧹 Limpar Ambos (A+B)")
+        flush_both_status = gr.HTML()
+        flush_both_debug = gr.Code()
+
+    # Histórico
     gr.Markdown("### Histórico (últimos 50)")
     history_table = gr.Dataframe(
         headers=["Hora", "Cenário", "Company", "BU", "Person", "Fonte", "Latência", "Tokens (est.)", "Economia", "Prompt"],
@@ -628,14 +659,93 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
         col_count=(10, "fixed"),
     )
 
-    # FLUSH "Ambos"
-    gr.Markdown("---")
-    gr.Markdown("### 🧹 Limpeza Combinada (A + B)")
-    flush_both_btn = gr.Button("🧹 Limpar Ambos (A+B)")
-    flush_both_status = gr.HTML()
-    flush_both_debug = gr.Code()
+    # ==== Eventos (mesmos do seu código) ====
+    def handle_submit(
+        side: str,
+        company: str,
+        bu: str,
+        person: str,
+        prompt: str,
+        isolation: str,
+        threshold: float,
+        use_exact_sem: bool,
+        ttl_seconds: int,
+        price_in: float,
+        price_out: float,
+        frac_in: float,
+        currency: str,
+        state: dict,
+    ):
+        sim = None if threshold < 0 else threshold
+        ttl_ms = None if ttl_seconds <= 0 else ttl_seconds * 1000
 
-    # Eventos de pergunta
+        company = (company or "Acme").strip()
+        bu = (bu or "BU-1").strip()
+        person = (person or "user-1").strip()
+
+        answer, source, debug_json, latency, tokens_est = search_and_answer(
+            company=company,
+            bu=bu,
+            person=person,
+            prompt_original=prompt,
+            isolation=isolation,
+            similarity_threshold=sim,
+            use_exact_then_semantic=use_exact_sem,
+            ttl_ms=ttl_ms,
+        )
+
+        if source == "cache":
+            state["hits"] = state.get("hits", 0) + 1
+            saved = calc_savings(tokens_est, price_in, price_out, frac_in)
+            state["saved_usd"] = state.get("saved_usd", 0.0) + saved
+            state["saved_tokens"] = state.get("saved_tokens", 0) + tokens_est
+            saved_str = f"Economia: {format_currency(saved, currency)}"
+        else:
+            state["misses"] = state.get("misses", 0) + 1
+            saved_str = "Sem economia neste turno"
+
+        history = state.setdefault("history", [])
+        history.append({
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "lado": side,
+            "company": company,
+            "business_unit": bu,
+            "person": person,
+            "fonte": source,
+            "latencia": latency,
+            "tokens_est": tokens_est,
+            "economia_turno": (calc_savings(tokens_est, price_in, price_out, frac_in) if source == "cache" else 0.0),
+            "prompt": prompt[:60] + ("…" if len(prompt) > 60 else ""),
+        })
+        if len(history) > 200:
+            del history[: len(history) - 200]
+
+        k = atualizar_kpis(state)
+        table_rows = [
+            [h["timestamp"], h["lado"], h["company"], h["business_unit"], h["person"], h["fonte"], h["latencia"], h["tokens_est"], f"{format_currency(h['economia_turno'])}", h["prompt"]]
+            for h in reversed(history[-50:])
+        ]
+
+        kpi_hits_html = f"<div class='kpi'><div class='kpi-num'>{k['hits']}</div><div class='kpi-label'>Hits</div></div>"
+        kpi_miss_html = f"<div class='kpi'><div class='kpi-num'>{k['misses']}</div><div class='kpi-label'>Misses</div></div>"
+        kpi_rate_html = f"<div class='kpi'><div class='kpi-num'>{k['rate']}</div><div class='kpi-label'>Hit Rate</div></div>"
+        kpi_tok_html = f"<div class='kpi'><div class='kpi-num'>{k['tokens']}</div><div class='kpi-label'>Tokens</div></div>"
+        kpi_usd_html = f"<div class='kpi kpi-accent'><div class='kpi-num'>{k['usd']}</div><div class='kpi-label'>Economia</div></div>"
+
+        return (
+            answer,
+            json.dumps({"fonte": source}, ensure_ascii=False),
+            debug_json,
+            f"{latency} · {saved_str}",
+            gr.update(value=kpi_hits_html),
+            gr.update(value=kpi_miss_html),
+            gr.update(value=kpi_rate_html),
+            gr.update(value=kpi_tok_html),
+            gr.update(value=kpi_usd_html),
+            table_rows,
+            state,
+        )
+
     a_btn.click(
         fn=handle_submit,
         inputs=[
@@ -670,7 +780,6 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as demo:
         ],
     )
 
-    # Eventos de FLUSH
     a_flush_btn.click(
         fn=handle_flush_scope,
         inputs=[a_company, a_bu, a_person, isolation_global],
