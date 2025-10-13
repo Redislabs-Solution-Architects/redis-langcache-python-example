@@ -99,7 +99,7 @@ docker run -d \
 version: "3.9"
 services:
   langcache-demo:
-    image: gacerioni/gabs-redis-langcache:1.0.5
+    image: gacerioni/gabs-redis-langcache:1.1.0
     # platform: linux/amd64  # descomente em Apple Silicon se precisar
     env_file:
       - .env

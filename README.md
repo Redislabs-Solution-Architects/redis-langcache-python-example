@@ -86,7 +86,7 @@ docker run -d \
   --name langcache-demo \
   --env-file .env \
   -p 7860:7860 \
-  gacerioni/gabs-redis-langcache:1.0.5
+  gacerioni/gabs-redis-langcache:1.1.0
 ```
 
 > Apple Silicon (arm64): if needed, add `--platform linux/amd64` when running the image.
@@ -100,7 +100,7 @@ docker run -d \
 version: "3.9"
 services:
   langcache-demo:
-    image: gacerioni/gabs-redis-langcache:1.0.5
+    image: gacerioni/gabs-redis-langcache:1.1.0
     # platform: linux/amd64  # uncomment on Apple Silicon if needed
     env_file:
       - .env
