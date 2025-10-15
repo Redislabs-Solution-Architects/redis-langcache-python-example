@@ -595,7 +595,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
       <div class="app-header">
         <div class="brand">
           <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/Redis_logo.svg/2560px-Redis_logo.svg.png" alt="Redis">
-          <div class="title">Redis LangCache — Demo PT-BR - SemVer: v2.0.9-harness - PR GitHub: gacerioni</div>
+          <div class="title">Redis LangCache — Demo PT-BR - SemVer: v2.0.10-harness - PR GitHub: gacerioni</div>
         </div>
         <div class="links">
           <a href="https://www.linkedin.com/in/gabrielcerioni/" target="_blank" rel="noopener">💼 LinkedIn do Gabs</a>

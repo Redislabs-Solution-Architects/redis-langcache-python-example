@@ -1,10 +1,10 @@
 # .github/workflows/ci.yml
-name: CI (Auto-tag + Build & Push Docker on SemVer)
+name: CI (Auto-tag on main + Push Docker on SemVer tag)
 
 on:
   push:
-    branches: [ "main" ]               # main pushes can create a tag (no image push)
-    tags:     [ "v*.*.*", "*.*.*" ]    # tag pushes build & push the SemVer image
+    branches: [ "main" ]               # main push -> create next tag (no Docker push)
+    tags:     [ "v*.*.*", "*.*.*" ]    # tag push -> build & push the SemVer image
   workflow_dispatch: {}
 
 env:
@@ -12,35 +12,22 @@ env:
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/gabs-redis-langcache
   DOCKERFILE: ./Dockerfile
 
-# We need write so the job can create a tag via GitHub API
+# Needed so GITHUB_TOKEN can create tags
 permissions:
   contents: write
 
 jobs:
-  # 1) MAIN PUSH: if any commit message includes #release, create next SemVer tag (no Docker build here)
-  auto-release:
+  # 1) MAIN: always bump & create next patch tag. NO Docker build here.
+  auto-tag:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (full history for tags)
+      - name: Checkout (full history)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Decide if this push requests a release
-        id: decide
-        run: |
-          MSGS="${{ join(github.event.commits.*.message, ' | ') }}"
-          echo "Commit messages: $MSGS"
-          if echo "$MSGS" | grep -q '#release'; then
-            echo "release=yes" >> $GITHUB_OUTPUT
-          else
-            echo "release=no" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Compute next patch tag (vX.Y.Z -> vX.Y.(Z+1))
-        id: bump
-        if: steps.decide.outputs.release == 'yes'
+      - name: Bump patch and create tag
         shell: bash
         run: |
           set -e
@@ -49,28 +36,19 @@ jobs:
           VER=${LAST#v}
           IFS='.' read -r MA MI PA <<<"$VER"
           NEW_TAG="v$MA.$MI.$((PA+1))"
-          echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
-          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
-          echo "Last tag: $LAST  ->  Next tag: $NEW_TAG"
+          echo "Last: $LAST  ->  New: $NEW_TAG"
 
-      - name: Create git tag via GitHub API
-        if: steps.decide.outputs.release == 'yes'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const newTag = process.env.NEW_TAG; // from $GITHUB_ENV
-            core.info(`Creating tag ${newTag} at ${context.sha}`);
-            await github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/tags/${newTag}`,
-              sha: context.sha
-            });
-        env:
-          NEW_TAG: ${{ env.NEW_TAG }}
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-  # 2) TAG PUSH: ONLY build & push the SemVer image
-  build-and-push:
+          # Create annotated tag on the pushed commit (HEAD of main)
+          git tag -a "$NEW_TAG" -m "release $NEW_TAG"
+
+          # Push tag using GITHUB_TOKEN (requires 'contents: write' + repo setting 'Read and write')
+          git push origin "$NEW_TAG"
+
+  # 2) TAG: ONLY build & push the SemVer image to Docker Hub.
+  push-image:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
