@@ -1,10 +1,10 @@
 # .github/workflows/ci.yml
-name: CI (Build & Push Docker)
+name: CI (Build & Push Docker + Auto Release)
 
 on:
   push:
     branches: [ "main" ]
-    tags:     [ "v*.*.*" ]   # allow v2.0.1 or 2.0.1 (keep only the one you use)
+    tags:     [ "v*.*.*", "*.*.*" ]   # supports v2.0.1 or 2.0.1
   workflow_dispatch: {}
 
 env:
@@ -13,7 +13,7 @@ env:
   DOCKERFILE: ./Dockerfile
 
 permissions:
-  contents: read
+  contents: write   # needed to push tags & create releases
 
 jobs:
   build-and-push:
@@ -44,7 +44,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # Only SemVer on tag events; only latest/branch/sha on branch events
+          # Only SemVer on tag events; latest/branch/sha on main pushes
           tags: |
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
             type=raw,value=latest,enable=${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
@@ -75,3 +75,39 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+
+  auto-release:
+    needs: build-and-push
+    if: contains(github.event.head_commit.message, '#release')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for tags
+
+      - name: Bump patch version and create tag
+        id: bump
+        run: |
+          set -e
+          LAST=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$LAST" ]; then LAST="v0.0.0"; fi
+          VER=${LAST#v}
+          IFS='.' read -r MA MI PA <<<"$VER"
+          NEW_TAG="v$MA.$MI.$((PA+1))"
+          echo "New tag: $NEW_TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_TAG" -m "release $NEW_TAG"
+          git push origin "$NEW_TAG"
+          echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: Release ${{ steps.bump.outputs.tag }}
+          body: |
+            🚀 Automated release from CI.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
