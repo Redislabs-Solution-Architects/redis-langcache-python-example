@@ -1,5 +1,5 @@
 # .github/workflows/ci.yml
-name: CI (Build & Push Docker + Auto Release)
+name: CI (Auto-tag + Build & Push Docker on SemVer)
 
 on:
   push:
@@ -13,10 +13,40 @@ env:
   DOCKERFILE: ./Dockerfile
 
 permissions:
-  contents: write   # required to create and push tags
+  contents: write   # needed to create/push git tags
 
 jobs:
+  # ------------------------------------------------------------
+  # 1️⃣  MAIN BRANCH: only auto-tag if '#release' is in commit msg
+  # ------------------------------------------------------------
+  auto-release:
+    if: ${{ github.ref == 'refs/heads/main' && contains(join(github.event.commits.*.message, ' '), '#release') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump patch version and create tag
+        run: |
+          set -e
+          LAST=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+          [ -z "$LAST" ] && LAST="v0.0.0"
+          VER=${LAST#v}
+          IFS='.' read -r MA MI PA <<<"$VER"
+          NEW_TAG="v$MA.$MI.$((PA+1))"
+          echo "Creating $NEW_TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_TAG" -m "release $NEW_TAG"
+          git push origin "$NEW_TAG"
+
+  # ------------------------------------------------------------
+  # 2️⃣  TAG EVENT: build & push image ONLY for SemVer tags
+  # ------------------------------------------------------------
   build-and-push:
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,29 +65,19 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Sanitize Docker context env
-        run: echo "DOCKER_CONTEXT=" >> $GITHUB_ENV
-
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # 👇 Only push semver tags on tag events
           tags: |
-            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
           labels: |
             org.opencontainers.image.title=${{ github.event.repository.name }}
             org.opencontainers.image.source=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Debug tags
-        run: echo "→ ${{ steps.meta.outputs.tags }}"
-
-      - name: Build & Push multi-arch
+      - name: Build & Push SemVer image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -69,28 +89,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
-
-  auto-release:
-    needs: build-and-push
-    # Fire only on main branch pushes containing '#release'
-    if: ${{ github.ref == 'refs/heads/main' && contains(join(github.event.commits.*.message, ' '), '#release') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Bump patch version and create tag
-        id: bump
-        run: |
-          set -e
-          LAST=$(git tag -l 'v*' --sort=-v:refname | head -n1)
-          [ -z "$LAST" ] && LAST="v0.0.0"
-          VER=${LAST#v}
-          IFS='.' read -r MA MI PA <<<"$VER"
-          NEW_TAG="v$MA.$MI.$((PA+1))"
-          echo "Creating $NEW_TAG"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$NEW_TAG" -m "release $NEW_TAG"
-          git push origin "$NEW_TAG"
