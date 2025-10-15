@@ -587,7 +587,7 @@ button.primary:hover, .gr-button-primary:hover {
 """
 
 # ============== APP (layout preservado A/B) ==============
-with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="app-root") as demo:
+with gr.Blocks(title="Redis LangCache — Demo PT-BR - SemVer: 2.0.2", css=CUSTOM_CSS, elem_id="app-root") as demo:
     st = gr.State({"hits": 0, "misses": 0, "saved_tokens": 0, "saved_usd": 0.0, "history": []})
 
     # Header com logo + links

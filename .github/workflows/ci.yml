@@ -4,7 +4,7 @@ name: CI (Build & Push Docker)
 on:
   push:
     branches: [ "main" ]
-    tags:     [ "v*.*.*" ]
+    tags:     [ "v*.*.*" ]   # allow v2.0.1 or 2.0.1 (keep only the one you use)
   workflow_dispatch: {}
 
 env:
@@ -13,7 +13,7 @@ env:
   DOCKERFILE: ./Dockerfile
 
 permissions:
-  contents: read   # no write permissions needed
+  contents: read
 
 jobs:
   build-and-push:
@@ -44,15 +44,24 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Only SemVer on tag events; only latest/branch/sha on branch events
           tags: |
-            type=sha
-            type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
+            type=ref,event=branch,enable=${{ github.ref_type == 'branch' }}
+            type=sha,enable=${{ github.ref_type == 'branch' }}
           labels: |
             org.opencontainers.image.title=${{ github.event.repository.name }}
             org.opencontainers.image.source=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Debug tags & labels
+        run: |
+          echo "TAGS:"
+          echo "${{ steps.meta.outputs.tags }}"
+          echo
+          echo "LABELS:"
+          echo "${{ steps.meta.outputs.labels }}"
 
       - name: Build & Push (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@v6
