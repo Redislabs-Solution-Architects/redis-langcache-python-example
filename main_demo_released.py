@@ -627,7 +627,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
             <div class="meta">
               <div class="meta-item">
                 <span class="label">SemVer:</span>
-                <span class="value">v2.0.11-harness</span>
+                <span class="value">v2.2.1-harness</span>
               </div>
               <div class="meta-item">
                 <span class="label">PR GitHub:</span>
