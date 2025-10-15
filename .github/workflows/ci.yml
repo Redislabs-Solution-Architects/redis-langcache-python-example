@@ -4,7 +4,7 @@ name: CI (Build & Push Docker + Auto Release)
 on:
   push:
     branches: [ "main" ]
-    tags:     [ "v*.*.*", "*.*.*" ]   # supports v2.0.1 or 2.0.1
+    tags:     [ "v*.*.*", "*.*.*" ]
   workflow_dispatch: {}
 
 env:
@@ -13,7 +13,7 @@ env:
   DOCKERFILE: ./Dockerfile
 
 permissions:
-  contents: write   # needed to push tags & create releases
+  contents: write
 
 jobs:
   build-and-push:
@@ -44,24 +44,18 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # Only SemVer on tag events; latest/branch/sha on main pushes
+          # 👇 build ONLY the right tags for each event type
           tags: |
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
             type=raw,value=latest,enable=${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
             type=ref,event=branch,enable=${{ github.ref_type == 'branch' }}
-            type=sha,enable=${{ github.ref_type == 'branch' }}
           labels: |
             org.opencontainers.image.title=${{ github.event.repository.name }}
             org.opencontainers.image.source=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Debug tags & labels
-        run: |
-          echo "TAGS:"
-          echo "${{ steps.meta.outputs.tags }}"
-          echo
-          echo "LABELS:"
-          echo "${{ steps.meta.outputs.labels }}"
+      - name: Debug tags
+        run: echo "${{ steps.meta.outputs.tags }}"
 
       - name: Build & Push (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@v6
@@ -84,7 +78,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # need full history for tags
+          fetch-depth: 0
 
       - name: Bump patch version and create tag
         id: bump
@@ -100,14 +94,3 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$NEW_TAG" -m "release $NEW_TAG"
           git push origin "$NEW_TAG"
-          echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.bump.outputs.tag }}
-          name: Release ${{ steps.bump.outputs.tag }}
-          body: |
-            🚀 Automated release from CI.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
