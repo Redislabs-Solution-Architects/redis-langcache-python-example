@@ -1,10 +1,9 @@
 # .github/workflows/ci.yml
-name: CI (Auto-tag on main + Push Docker on SemVer tag)
+name: CI (Auto-tag + Push Docker)
 
 on:
   push:
-    branches: [ "main" ]               # main push -> create next tag (no Docker push)
-    tags:     [ "v*.*.*", "*.*.*" ]    # tag push -> build & push the SemVer image
+    branches: [ "main" ]
   workflow_dispatch: {}
 
 env:
@@ -17,43 +16,70 @@ permissions:
   contents: write
 
 jobs:
-  # 1) MAIN: always bump & create next patch tag. NO Docker build here.
-  auto-tag:
-    if: ${{ github.ref == 'refs/heads/main' }}
+  build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Bump patch and create tag
+      - name: Determine version bump from commit message
+        id: bump
         shell: bash
         run: |
           set -e
+
+          # Get the last tag
           LAST=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)
           [ -z "$LAST" ] && LAST="v0.0.0"
-          VER=${LAST#v}
-          IFS='.' read -r MA MI PA <<<"$VER"
-          NEW_TAG="v$MA.$MI.$((PA+1))"
-          echo "Last: $LAST  ->  New: $NEW_TAG"
 
+          # Parse version
+          VER=${LAST#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<<"$VER"
+
+          # Get commit message
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          echo "Commit message: $COMMIT_MSG"
+
+          # Determine bump type from conventional commit
+          if echo "$COMMIT_MSG" | grep -qiE '^(feat|feature)(\(.*\))?!:|^BREAKING CHANGE:'; then
+            # Breaking change -> major bump
+            MAJOR=$((MAJOR+1))
+            MINOR=0
+            PATCH=0
+            BUMP_TYPE="major"
+          elif echo "$COMMIT_MSG" | grep -qiE '^(feat|feature)(\(.*\))?:'; then
+            # Feature -> minor bump
+            MINOR=$((MINOR+1))
+            PATCH=0
+            BUMP_TYPE="minor"
+          else
+            # Everything else (fix, chore, docs, etc.) -> patch bump
+            PATCH=$((PATCH+1))
+            BUMP_TYPE="patch"
+          fi
+
+          NEW_TAG="v$MAJOR.$MINOR.$PATCH"
+          echo "Last tag: $LAST"
+          echo "Bump type: $BUMP_TYPE"
+          echo "New tag: $NEW_TAG"
+
+          # Export for next steps
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "version=$MAJOR.$MINOR.$PATCH" >> $GITHUB_OUTPUT
+          echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        shell: bash
+        run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Create annotated tag on the pushed commit (HEAD of main)
-          git tag -a "$NEW_TAG" -m "release $NEW_TAG"
-
-          # Push tag using GITHUB_TOKEN (requires 'contents: write' + repo setting 'Read and write')
-          git push origin "$NEW_TAG"
-
-  # 2) TAG: ONLY build & push the SemVer image to Docker Hub.
-  push-image:
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          git tag -a "${{ steps.bump.outputs.new_tag }}" -m "release ${{ steps.bump.outputs.new_tag }} (${{ steps.bump.outputs.bump_type }} bump)"
+          git push origin "${{ steps.bump.outputs.new_tag }}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -68,27 +94,30 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract Docker metadata (SemVer only)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-          labels: |
-            org.opencontainers.image.title=${{ github.event.repository.name }}
-            org.opencontainers.image.source=${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-
-      - name: Build & Push SemVer image
+      - name: Build & Push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.bump.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.title=${{ github.event.repository.name }}
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.bump.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.bump.outputs.new_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Bump Type**: ${{ steps.bump.outputs.bump_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.bump.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
