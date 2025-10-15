@@ -464,12 +464,28 @@ body, #app-root { background: var(--bg); }
 .app-header {
   position: sticky; top: 0; z-index: 50;
   display:flex; align-items:center; justify-content:space-between; gap:12px;
-  padding:12px 16px; background: var(--redis-red); color:#fff;
+  padding:14px 16px; background: var(--redis-red); color:#fff;
   box-shadow: 0 2px 8px rgba(0,0,0,.18);
 }
-.app-header .brand { display:flex; align-items:center; gap:12px; }
-.app-header .brand img { height:22px; display:block; }
-.app-header .title { font-family: 'Space Grotesk', Inter, sans-serif; font-size:18px; font-weight:700; letter-spacing:.2px; }
+.app-header .brand { display:flex; align-items:center; gap:14px; flex:1; }
+.app-header .brand img { height:24px; display:block; }
+.app-header .brand-content { display:flex; flex-direction:column; gap:4px; flex:1; }
+.app-header .title {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size:20px; font-weight:700; letter-spacing:.3px;
+  line-height:1.2;
+}
+.app-header .meta {
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  font-size:12px; opacity:0.95; font-weight:500;
+}
+.app-header .meta-item {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:3px 8px; background:rgba(255,255,255,0.15);
+  border-radius:6px; white-space:nowrap;
+}
+.app-header .meta-item .label { opacity:0.8; }
+.app-header .meta-item .value { font-weight:600; }
 .app-header .links { display:flex; gap:8px; }
 .app-header .links a {
   display:inline-flex; align-items:center; gap:8px; color:#fff; text-decoration:none;
@@ -477,6 +493,17 @@ body, #app-root { background: var(--bg); }
   transition: background .15s ease, transform .15s ease;
 }
 .app-header .links a:hover { background: rgba(255,255,255,.14); transform: translateY(-1px); }
+
+/* Mobile responsive header */
+@media (max-width: 768px) {
+  .app-header { flex-direction:column; align-items:flex-start; padding:12px; }
+  .app-header .brand { flex-direction:column; align-items:flex-start; gap:10px; }
+  .app-header .brand img { height:20px; }
+  .app-header .title { font-size:16px; }
+  .app-header .meta { gap:8px; }
+  .app-header .meta-item { font-size:11px; padding:2px 6px; }
+  .app-header .links { width:100%; justify-content:flex-start; }
+}
 
 /* HEADINGS */
 .h1 {
@@ -595,7 +622,19 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
       <div class="app-header">
         <div class="brand">
           <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/Redis_logo.svg/2560px-Redis_logo.svg.png" alt="Redis">
-          <div class="title">Redis LangCache — Demo PT-BR - SemVer: v2.0.10-harness - PR GitHub: gacerioni</div>
+          <div class="brand-content">
+            <div class="title">Redis LangCache — Demo PT-BR</div>
+            <div class="meta">
+              <div class="meta-item">
+                <span class="label">SemVer:</span>
+                <span class="value">v2.0.11-harness</span>
+              </div>
+              <div class="meta-item">
+                <span class="label">PR GitHub:</span>
+                <span class="value">gacerioni</span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="links">
           <a href="https://www.linkedin.com/in/gabrielcerioni/" target="_blank" rel="noopener">💼 LinkedIn do Gabs</a>
