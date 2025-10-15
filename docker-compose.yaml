@@ -1,4 +1,4 @@
-# Deployed with Harness by Gabs with Templates!
+# Deployed with Harness by Gabs with Templates
 version: "3.9"
 
 services:
