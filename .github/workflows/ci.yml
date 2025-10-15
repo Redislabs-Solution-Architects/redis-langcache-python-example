@@ -1,3 +1,4 @@
+# .github/workflows/ci.yml
 name: CI (Build & Push Docker + Auto Release)
 
 on:
@@ -12,7 +13,7 @@ env:
   DOCKERFILE: ./Dockerfile
 
 permissions:
-  contents: write
+  contents: write   # required to create and push tags
 
 jobs:
   build-and-push:
@@ -42,12 +43,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # 👉 Only semver tags when triggered by a tag event
+          # 👇 Only push semver tags on tag events
           tags: |
             type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=raw,value=latest,enable=${{ github.ref_name == 'main' && !startsWith(github.ref, 'refs/tags/') }}
-            type=ref,event=branch,enable=${{ !startsWith(github.ref, 'refs/tags/') }}
-            type=sha,enable=${{ !startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
             org.opencontainers.image.title=${{ github.event.repository.name }}
             org.opencontainers.image.source=${{ github.repository }}
@@ -71,7 +72,8 @@ jobs:
 
   auto-release:
     needs: build-and-push
-    if: contains(github.event.head_commit.message, '#release')
+    # Fire only on main branch pushes containing '#release'
+    if: ${{ github.ref == 'refs/heads/main' && contains(join(github.event.commits.*.message, ' '), '#release') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,7 +89,7 @@ jobs:
           VER=${LAST#v}
           IFS='.' read -r MA MI PA <<<"$VER"
           NEW_TAG="v$MA.$MI.$((PA+1))"
-          echo "New tag: $NEW_TAG"
+          echo "Creating $NEW_TAG"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$NEW_TAG" -m "release $NEW_TAG"
