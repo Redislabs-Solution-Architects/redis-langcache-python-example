@@ -170,14 +170,34 @@ def call_openai(
         "Responda de forma breve e direta. "
         "Não mencione o nome do usuário a menos que a pergunta seja sobre o nome/identidade. "
         f"Contexto principal: {domain}. "
-        "Se a pergunta for ambígua (ex.: 'célula', 'rede', 'banco'), "
+        "Se a pergunta for ambígua (ex.: 'deploy', 'pipeline', 'modelo'), "
         f"RESPONDA APENAS no sentido de {domain} e NÃO mencione outros significados."
     )
+
     examples = [
-        {"role": "user", "content": "O que é uma célula? (no contexto de saúde)"},
-        {"role": "assistant", "content": "Uma célula é a menor unidade estrutural e funcional dos seres vivos."},
-        {"role": "user", "content": "O que é uma célula? (no contexto de engenharia de software)"},
-        {"role": "assistant", "content": "Em computação, célula costuma se referir a uma unidade em uma tabela/planilha ou a um componente isolado de execução."},
+        # Engenharia de Software
+        {"role": "user", "content": "O que é um deploy? (no contexto de engenharia de software)"},
+        {"role": "assistant",
+         "content": "Deploy é o processo de disponibilizar uma nova versão de software em produção."},
+        {"role": "user", "content": "O que é um pipeline? (no contexto de engenharia de software)"},
+        {"role": "assistant",
+         "content": "Um pipeline é uma sequência automatizada de etapas para construir, testar e implantar código."},
+
+        # Financeiro
+        {"role": "user", "content": "O que é um deploy? (no contexto de finanças corporativas)"},
+        {"role": "assistant",
+         "content": "No contexto financeiro, deploy pode se referir à liberação de um novo processo, sistema ou investimento para uso interno."},
+        {"role": "user", "content": "O que é um pipeline? (no contexto de vendas e finanças)"},
+        {"role": "assistant",
+         "content": "Pipeline é a lista de oportunidades ou previsões de receita que ainda estão em andamento."},
+
+        # Bilíngue — cache semântico cross-language
+        {"role": "user", "content": "Explique o que é aprendizado de máquina."},
+        {"role": "assistant",
+         "content": "Aprendizado de máquina é uma área da IA que permite que sistemas aprendam padrões a partir de dados sem programação explícita."},
+        {"role": "user", "content": "What is machine learning?"},
+        {"role": "assistant",
+         "content": "Machine learning is a branch of AI that enables systems to learn patterns from data and make predictions or decisions without being explicitly programmed."},
     ]
     msgs = [{"role": "system", "content": system_ctx}, *examples, {"role": "user", "content": prompt}]
     resp = openai_client.chat.completions.create(
@@ -434,6 +454,7 @@ CUSTOM_CSS = """
 :root {
   --redis-red:#D82C20; --ink:#0b1220; --soft:#475569; --muted:#64748b;
   --line:#e5e7eb; --bg:#f6f7f9; --white:#ffffff; --radius:14px;
+  --success:#10b981; --warning:#f59e0b;
 }
 
 * { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; }
@@ -475,42 +496,65 @@ body, #app-root { background: var(--bg); }
 }
 
 /* KPIs */
-.kpi-row { display:flex; gap:12px; margin: 0 16px 10px; }
+.kpi-row { display:flex; gap:12px; margin: 0 16px 16px; flex-wrap: wrap; }
 .kpi {
-  flex:1; background: var(--white); border:1px solid var(--line); border-radius:12px;
-  padding:12px 14px;
+  flex:1; min-width: 140px; background: var(--white); border:1px solid var(--line); border-radius:12px;
+  padding:14px 16px; transition: transform .2s ease, box-shadow .2s ease;
 }
+.kpi:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.08); }
 .kpi .kpi-num {
   font-family: 'Space Grotesk', Inter, sans-serif;
-  font-size:22px; font-weight:700; color:var(--ink); line-height:1.1;
+  font-size:24px; font-weight:700; color:var(--ink); line-height:1.1;
 }
-.kpi .kpi-label { font-size:12px; color:var(--muted); margin-top:4px; text-transform:uppercase; letter-spacing:.6px; }
-.kpi-accent { border-color: var(--redis-red); }
+.kpi .kpi-label {
+  font-size:11px; color:var(--muted); margin-top:6px;
+  text-transform:uppercase; letter-spacing:.8px; font-weight:600;
+}
+.kpi-accent { border-color: var(--redis-red); border-width: 2px; }
+.kpi-accent .kpi-num { color: var(--redis-red); }
 
 /* Cenários lado a lado */
-.scenarios { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 10px 16px; }
+.scenarios { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 10px 16px; }
 @media (max-width: 1024px) { .scenarios { grid-template-columns: 1fr; } }
 
 .card {
-  background: var(--white); border:1px solid var(--line); border-radius: var(--radius);
-  padding:12px;
+  background: var(--white); border:2px solid var(--line); border-radius: var(--radius);
+  padding:16px; transition: border-color .2s ease;
 }
+.card:hover { border-color: var(--redis-red); }
 .card .card-title {
   font-family: 'Space Grotesk', Inter, sans-serif;
-  font-size:16px; font-weight:700; color:var(--ink); margin-bottom:8px;
+  font-size:18px; font-weight:700; color:var(--ink); margin-bottom:12px;
+  display: flex; align-items: center; gap: 8px;
 }
 
-/* Flush */
-.flush-wrap { margin-top:8px; border-top:1px dashed var(--line); padding-top:10px; }
+/* Source badges */
+.source-badge {
+  display: inline-block; padding: 4px 10px; border-radius: 6px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.source-cache { background: #d1fae5; color: #065f46; }
+.source-llm { background: #fef3c7; color: #92400e; }
 
 /* History */
 .dataframe { background: var(--white); border:1px solid var(--line); border-radius: var(--radius); }
-.dataframe thead tr th { font-size:12px; }
+.dataframe thead tr th { font-size:12px; font-weight:600; }
 .dataframe tbody tr td { font-size:12px; }
 
 /* Buttons */
 button.primary, .gr-button-primary {
   background: var(--redis-red) !important; border-color: var(--redis-red) !important; color:#fff !important;
+  font-weight: 600 !important; transition: all .2s ease !important;
+}
+button.primary:hover, .gr-button-primary:hover {
+  background: #c02518 !important; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(216,44,32,.3) !important;
+}
+
+/* Secondary buttons */
+.secondary-btn {
+  background: var(--white) !important; border: 1px solid var(--line) !important;
+  color: var(--soft) !important; font-weight: 600 !important;
 }
 
 /* --- HERO (título + subtítulo) --- */
@@ -605,51 +649,63 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
     with gr.Row(elem_classes=["scenarios"]):
         # --- Cenário A ---
         with gr.Column(elem_classes=["card"]):
-            gr.Markdown("<div class='card-title'>Cenário A</div>")
+            gr.Markdown("<div class='card-title'>Chat 🅰️</div>")
             with gr.Row():
                 a_company = gr.Textbox(label="Company", value="RedisLabs")
-                a_bu = gr.Textbox(label="Business Unit", value="Saude-Medicos")
+                a_bu = gr.Textbox(label="Business Unit", value="Engenharia-de-Software")
                 a_person = gr.Textbox(label="Person", value="Gabriel")
             a_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
             a_btn = gr.Button("Perguntar (A)", variant="primary")
-            a_answer = gr.Textbox(label="Resposta", lines=6)
+            a_answer = gr.Textbox(label="Resposta", lines=6, interactive=False)
             with gr.Row():
-                a_source = gr.Label(label="Origem")
+                a_source = gr.HTML(label="Origem")
                 a_latency = gr.Label(label="Latência")
-            a_debug = gr.Code(label="Debug")
-            gr.HTML("<div class='flush-wrap'></div>")
-            a_flush_btn = gr.Button("🧹 Limpar Cache (Escopo A)")
-            a_flush_status = gr.HTML()
-            a_flush_debug = gr.Code()
+            with gr.Accordion("🔍 Debug Info", open=False):
+                a_debug = gr.Code(label="Debug JSON", language="json")
+            with gr.Accordion("🧹 Gerenciar Cache", open=False):
+                a_flush_btn = gr.Button("Limpar Cache (Escopo A)", variant="secondary")
+                a_flush_status = gr.HTML()
+                with gr.Accordion("Debug do Flush", open=False):
+                    a_flush_debug = gr.Code(language="json")
 
         # --- Cenário B ---
         with gr.Column(elem_classes=["card"]):
-            gr.Markdown("<div class='card-title'>Cenário B</div>")
+            gr.Markdown("<div class='card-title'>Chat 🅱️</div>")
             with gr.Row():
                 b_company = gr.Textbox(label="Company", value="RedisLabs")
-                b_bu = gr.Textbox(label="Business Unit", value="Engenharia-de-Software")
-                b_person = gr.Textbox(label="Person", value="Janine")
+                b_bu = gr.Textbox(label="Business Unit", value="Financeiro")
+                b_person = gr.Textbox(label="Person", value="Diego")
             b_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
             b_btn = gr.Button("Perguntar (B)", variant="primary")
-            b_answer = gr.Textbox(label="Resposta", lines=6)
+            b_answer = gr.Textbox(label="Resposta", lines=6, interactive=False)
             with gr.Row():
-                b_source = gr.Label(label="Origem")
+                b_source = gr.HTML(label="Origem")
                 b_latency = gr.Label(label="Latência")
-            b_debug = gr.Code(label="Debug")
-            gr.HTML("<div class='flush-wrap'></div>")
-            b_flush_btn = gr.Button("🧹 Limpar Cache (Escopo B)")
-            b_flush_status = gr.HTML()
-            b_flush_debug = gr.Code()
+            with gr.Accordion("🔍 Debug Info", open=False):
+                b_debug = gr.Code(label="Debug JSON", language="json")
+            with gr.Accordion("🧹 Gerenciar Cache", open=False):
+                b_flush_btn = gr.Button("Limpar Cache (Escopo B)", variant="secondary")
+                b_flush_status = gr.HTML()
+                with gr.Accordion("Debug do Flush", open=False):
+                    b_flush_debug = gr.Code(language="json")
+
+    # Copy A → B button
+    with gr.Row():
+        gr.HTML("<div style='flex:1'></div>")
+        copy_btn = gr.Button("📋 Copiar A → B", variant="secondary", size="sm")
+        gr.HTML("<div style='flex:1'></div>")
 
     # Flush ambos
     with gr.Group():
         gr.Markdown("### 🧹 Limpeza Combinada (A + B)")
-        flush_both_btn = gr.Button("🧹 Limpar Ambos (A+B)")
-        flush_both_status = gr.HTML()
-        flush_both_debug = gr.Code()
+        with gr.Accordion("Opções Avançadas", open=False):
+            flush_both_btn = gr.Button("🧹 Limpar Ambos (A+B)", variant="secondary")
+            flush_both_status = gr.HTML()
+            with gr.Accordion("Debug do Flush", open=False):
+                flush_both_debug = gr.Code(language="json")
 
     # Histórico
-    gr.Markdown("### Histórico (últimos 50)")
+    gr.Markdown("### 📊 Histórico de Consultas (últimos 50)")
     history_table = gr.Dataframe(
         headers=["Hora", "Cenário", "Company", "BU", "Person", "Fonte", "Latência", "Tokens (est.)", "Economia", "Prompt"],
         datatype=["str", "str", "str", "str", "str", "str", "str", "number", "str", "str"],
@@ -732,9 +788,16 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
         kpi_tok_html = f"<div class='kpi'><div class='kpi-num'>{k['tokens']}</div><div class='kpi-label'>Tokens</div></div>"
         kpi_usd_html = f"<div class='kpi kpi-accent'><div class='kpi-num'>{k['usd']}</div><div class='kpi-label'>Economia</div></div>"
 
+        # Create visual badge for source
+        source_badge = (
+            f"<span class='source-badge source-{source}'>"
+            f"{'✓ CACHE HIT' if source == 'cache' else '⚡ LLM CALL'}"
+            f"</span>"
+        )
+
         return (
             answer,
-            json.dumps({"fonte": source}, ensure_ascii=False),
+            source_badge,
             debug_json,
             f"{latency} · {saved_str}",
             gr.update(value=kpi_hits_html),
@@ -746,6 +809,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
             state,
         )
 
+    # Scenario A submit handlers
     a_btn.click(
         fn=handle_submit,
         inputs=[
@@ -763,6 +827,25 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
         ],
     )
 
+    # Enable Enter key submission for A
+    a_prompt.submit(
+        fn=handle_submit,
+        inputs=[
+            gr.State("A"),
+            a_company, a_bu, a_person, a_prompt,
+            isolation_global, threshold_global, exact_sem_global, ttl_global,
+            price_in, price_out, frac_in, currency,
+            st,
+        ],
+        outputs=[
+            a_answer, a_source, a_debug, a_latency,
+            kpi_hits, kpi_misses, kpi_rate, kpi_tokens, kpi_savings,
+            history_table,
+            st,
+        ],
+    )
+
+    # Scenario B submit handlers
     b_btn.click(
         fn=handle_submit,
         inputs=[
@@ -778,6 +861,34 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
             history_table,
             st,
         ],
+    )
+
+    # Enable Enter key submission for B
+    b_prompt.submit(
+        fn=handle_submit,
+        inputs=[
+            gr.State("B"),
+            b_company, b_bu, b_person, b_prompt,
+            isolation_global, threshold_global, exact_sem_global, ttl_global,
+            price_in, price_out, frac_in, currency,
+            st,
+        ],
+        outputs=[
+            b_answer, b_source, b_debug, b_latency,
+            kpi_hits, kpi_misses, kpi_rate, kpi_tokens, kpi_savings,
+            history_table,
+            st,
+        ],
+    )
+
+    # Copy A → B functionality
+    def copy_a_to_b(company, bu, person, prompt):
+        return company, bu, person, prompt
+
+    copy_btn.click(
+        fn=copy_a_to_b,
+        inputs=[a_company, a_bu, a_person, a_prompt],
+        outputs=[b_company, b_bu, b_person, b_prompt]
     )
 
     a_flush_btn.click(
