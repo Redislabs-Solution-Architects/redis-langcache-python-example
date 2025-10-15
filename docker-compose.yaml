@@ -1,0 +1,29 @@
+# Deployed with Harness by Gabs with Templates
+version: "3.9"
+
+services:
+  langcache-demo:
+    container_name: langcache-demo
+    image: <+pipeline.stages.Deploy_to_GCE.spec.artifacts.primary.imagePath>:<+pipeline.stages.Deploy_to_GCE.spec.artifacts.primary.tag>
+    # platform: linux/amd64  # uncomment if on Apple Silicon host forcing amd64
+    ports:
+      - "7860:7860"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+    # Healthcheck: adjust the URL if your app has a specific health endpoint.
+    # Fallback TCP check example is below if HTTP isn’t available.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7860/ || exit 1"]
+      interval: 20s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+    # (optional) tighten logs a bit
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

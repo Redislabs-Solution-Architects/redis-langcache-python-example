@@ -1,0 +1,18 @@
+[Unit]
+Description=langcache demo (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+RemainAfterExit=yes
+# If compose ever fails (e.g., transient Docker error), retry:
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
