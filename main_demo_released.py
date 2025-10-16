@@ -40,6 +40,9 @@ if not OPENAI_API_KEY:
     raise SystemExit("Faltou OPENAI_API_KEY no ambiente.")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
+# Password protection
+APP_PASSWORD = os.getenv("APP_PASSWORD", "secret42")
+
 lang_cache: Optional[LangCache] = None
 if LANGCACHE_API_KEY and LANGCACHE_CACHE_ID and LangCache is not None:
     lang_cache = LangCache(
@@ -627,7 +630,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
             <div class="meta">
               <div class="meta-item">
                 <span class="label">SemVer:</span>
-                <span class="value">v2.2.5-harness</span>
+                <span class="value">v2.2.6-harness</span>
               </div>
               <div class="meta-item">
                 <span class="label">PR GitHub:</span>
@@ -948,9 +951,79 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
         outputs=[flush_both_status, flush_both_debug],
     )
 
+# ============== PASSWORD PROTECTION ==============
+def check_password(password):
+    """Check if the provided password matches the environment variable."""
+    if password == APP_PASSWORD:
+        return {
+            login_box: gr.update(visible=False),
+            main_app: gr.update(visible=True)
+        }
+    else:
+        return {
+            login_box: gr.update(visible=True),
+            main_app: gr.update(visible=False)
+        }
+
+# Wrap the demo with password protection
+with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS) as app:
+    with gr.Column(visible=True, elem_id="login-container") as login_box:
+        gr.HTML("""
+            <div style="max-width: 400px; margin: 100px auto; padding: 40px; background: white; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/Redis_logo.svg/2560px-Redis_logo.svg.png"
+                         alt="Redis" style="height: 40px; margin-bottom: 16px;">
+                    <h2 style="font-family: 'Space Grotesk', sans-serif; color: #0b1220; margin: 0;">Redis LangCache Demo</h2>
+                    <p style="color: #64748b; margin-top: 8px;">Digite a senha para acessar</p>
+                </div>
+            </div>
+        """)
+        with gr.Row():
+            gr.HTML("<div style='flex: 1;'></div>")
+            with gr.Column(scale=1, min_width=300):
+                password_input = gr.Textbox(
+                    label="🔒 Senha",
+                    type="password",
+                    placeholder="Digite a senha...",
+                    elem_id="password-input"
+                )
+                login_btn = gr.Button("Entrar", variant="primary", size="lg")
+                login_status = gr.HTML("")
+            gr.HTML("<div style='flex: 1;'></div>")
+
+    with gr.Column(visible=False) as main_app:
+        demo.render()
+
+    # Handle login
+    def handle_login(password):
+        if password == APP_PASSWORD:
+            return {
+                login_box: gr.update(visible=False),
+                main_app: gr.update(visible=True),
+                login_status: ""
+            }
+        else:
+            return {
+                login_box: gr.update(visible=True),
+                main_app: gr.update(visible=False),
+                login_status: "<p style='color: #ef4444; text-align: center; margin-top: 10px;'>❌ Senha incorreta</p>"
+            }
+
+    login_btn.click(
+        fn=handle_login,
+        inputs=[password_input],
+        outputs=[login_box, main_app, login_status]
+    )
+
+    password_input.submit(
+        fn=handle_login,
+        inputs=[password_input],
+        outputs=[login_box, main_app, login_status]
+    )
+
 if __name__ == "__main__":
     if lang_cache:
         with lang_cache:
-            demo.launch()
+            app.launch()
     else:
-        demo.launch()
+        app.launch()
