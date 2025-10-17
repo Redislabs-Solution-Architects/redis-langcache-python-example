@@ -630,7 +630,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
             <div class="meta">
               <div class="meta-item">
                 <span class="label">SemVer:</span>
-                <span class="value">v2.2.6-harness</span>
+                <span class="value">v2.2.7-harness</span>
               </div>
               <div class="meta-item">
                 <span class="label">PR GitHub:</span>
@@ -642,6 +642,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
         <div class="links">
           <a href="https://www.linkedin.com/in/gabrielcerioni/" target="_blank" rel="noopener">💼 LinkedIn do Gabs</a>
           <a href="https://redis.io/" target="_blank" rel="noopener">🔗 Redis</a>
+          <a href="https://github.com/Redislabs-Solution-Architects/redis-langcache-python-example" target="_blank" rel="noopener">⭐ GitHub Repo</a>
         </div>
       </div>
     """)
