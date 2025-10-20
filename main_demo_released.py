@@ -630,7 +630,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
             <div class="meta">
               <div class="meta-item">
                 <span class="label">SemVer:</span>
-                <span class="value">v2.2.7-harness</span>
+                <span class="value">v2.2.8-gabriella</span>
               </div>
               <div class="meta-item">
                 <span class="label">PR GitHub:</span>
@@ -696,7 +696,7 @@ with gr.Blocks(title="Redis LangCache — Demo PT-BR", css=CUSTOM_CSS, elem_id="
             with gr.Row():
                 a_company = gr.Textbox(label="Company", value="RedisLabs")
                 a_bu = gr.Textbox(label="Business Unit", value="Engenharia-de-Software")
-                a_person = gr.Textbox(label="Person", value="Gabriel")
+                a_person = gr.Textbox(label="Person", value="Gabriella")
             a_prompt = gr.Textbox(label="Pergunta", placeholder="Pergunte algo…", lines=3)
             a_btn = gr.Button("Perguntar (A)", variant="primary")
             a_answer = gr.Textbox(label="Resposta", lines=6, interactive=False)
